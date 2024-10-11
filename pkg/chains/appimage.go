@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"io"
 
 	"github.com/probonopd/go-appimage/src/goappimage"
 	"gopkg.in/ini.v1"
@@ -25,6 +27,10 @@ type AppImage struct {
 	Version    string
 	UpdateInfo string
 	AI         *goappimage.AppImage // Using the go-appimage package
+	file       *os.File
+	// --- MISC -- //
+	WrapArgs   []string  // TODO: Get rid of this
+	mainWrapArgs []string
 }
 
 // Create a new AppImage object from a path using goappimage
@@ -92,4 +98,77 @@ func (ai *AppImage) FuserDestroy() error {
 		return fmt.Errorf("failed to destroy: %v", err)
 	}
 	return nil
+}
+
+// Unmounts an AppImage
+func (ai *AppImage) Destroy() error {
+	if ai == nil {
+		return NilAppImage
+	} else if ai.Path == "" {
+		return NoPath
+	} else if !ai.IsMounted() {
+		return NotMounted
+	}
+
+	err := unmountDir(ai.mountDir)
+	if err != nil {
+		return err
+	}
+
+	ai.mountDir = ""
+
+	ai.file.Close()
+
+	// Clean up
+	err = os.RemoveAll(ai.TempDir())
+
+	ai = nil
+
+	return err
+}
+
+// Unmounts a directory (lazily in case the process is finishing up)
+func unmountDir(mntPt string) error {
+	var umount *exec.Cmd
+
+	if _, err := exec.LookPath("fusermount"); err == nil {
+		umount = exec.Command("fusermount", "-uz", mntPt)
+	} else {
+		umount = exec.Command("umount", "-l", mntPt)
+	}
+
+	// Run unmount command, returning the stdout+stderr if fail
+	out, err := umount.CombinedOutput()
+	if err != nil {
+		err = errors.New(string(out))
+	}
+
+	return err
+}
+
+// Thumbnail returns a reader for the `.DirIcon` file of the AppImage
+func (ai *AppImage) Thumbnail() (io.Reader, error) {
+    // Use reflection to access the unexported field
+    v := reflect.ValueOf(ai).Elem()
+    imageTypeField := v.FieldByName("imageType")
+
+    if !imageTypeField.IsValid() {
+        return nil, errors.New("imageType field not found")
+    }
+
+    // Check the value of the unexported field
+    if imageTypeField.Int() == -2 {
+        r, err := ExtractResourceReader(ai.Path, "icon/256.png")
+        if err == nil {
+            return r, nil
+        }
+    }
+
+    return ai.AI.ExtractFileReader(".DirIcon") // ExtractFileReader tries to get an io.ReadCloser for the file at filepath. Returns an error if the path is pointing to a folder. If the path is pointing to a symlink, it will try to return the file being pointed to, but only if it's within the AppImage.
+}
+func (ai *AppImage) IsMounted() bool {
+	return ai.mountDir != ""
+}
+func (ai *AppImage) TempDir() string {
+	return ai.tempDir
 }

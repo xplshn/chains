@@ -7,10 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"flag"
 
 	"github.com/xplshn/chains/pkg/chains"
-	"github.com/xplshn/chains/pkg/sandbox"
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 )
 
 var (
@@ -28,9 +29,9 @@ var (
 
 // Command line flags
 var (
-	help              = flag.BoolP("help", "h", false, "display this help menu")
-	listPerms         = flag.BoolP("list-perms", "l", false, "print all permissions to be granted to the app")
-	verbose           = flag.BoolP("verbose", "v", false, "make output more verbose")
+	help              = pflag.BoolP("help", "h", false, "display this help menu")
+	listPerms         = pflag.BoolP("list-perms", "l", false, "print all permissions to be granted to the app")
+	verbose           = pflag.BoolP("verbose", "v", false, "make output more verbose")
 	level             = flag.Int("level", -1, "change the permissions level")
 	rootDir           = flag.String("root-dir", "", "use a different filesystem root for system files")
 	dataDir           = flag.String("data-dir", "", "change the AppImage's sandbox home location")
@@ -113,7 +114,7 @@ func main() {
 	}
 
 	if err := ai.Sandbox(perms, flag.Args()[1:]); err != nil {
-		fatal("sandbox error:", err)
+		fmt.Errorf("sandbox error:", err)
 		return
 	}
 }
@@ -150,23 +151,25 @@ func handleFlags() {
 
 // Extract the AppImage's icon
 func extractIconFromAppImage(ai *chains.AppImage) error {
-	if *verbose {
-		fmt.Printf("Extracting icon to %s\n", *extractIcon)
-	}
-	icon, _, err := ai.Icon()
-	if err != nil {
-		return err
-	}
-	defer icon.Close()
+    if *verbose {
+        fmt.Printf("Extracting icon to %s", *extractIcon)
+    }
+    f, err := os.Create(*extractIcon)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
 
-	f, err := os.Create(*extractIcon)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+    // Open the icon file
+    iconFile, err := os.Open(ai.Icon)
+    if err != nil {
+        return err
+    }
+    defer iconFile.Close()
 
-	_, err = io.Copy(f, icon)
-	return err
+    // Copy the icon file to the destination
+    _, err = io.Copy(f, iconFile)
+    return err
 }
 
 // Extract the AppImage's thumbnail
@@ -178,7 +181,6 @@ func extractThumbnailFromAppImage(ai *chains.AppImage) error {
 	if err != nil {
 		return err
 	}
-	defer thumbnail.Close()
 
 	f, err := os.Create(*extractThumbnail)
 	if err != nil {
@@ -192,7 +194,7 @@ func extractThumbnailFromAppImage(ai *chains.AppImage) error {
 
 // Set permissions from profile or defaults
 func setPermissions(ai *chains.AppImage) (*chains.AppImagePerms, error) {
-	perms, err := ai.Permissions()
+	perms, err := ai.GetPermissions()
 	if err != nil {
 		return perms, err
 	}
@@ -204,7 +206,7 @@ func setPermissions(ai *chains.AppImage) (*chains.AppImagePerms, error) {
 		}
 		defer f.Close()
 
-		perms, err = permissions.FromReader(f)
+		perms, err = chains.FromReader(f)
 		if err != nil {
 			return perms, err
 		}
