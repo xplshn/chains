@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -9,46 +10,47 @@ import (
 	"syscall"
 
 	"github.com/xplshn/chains/pkg/chains"
-	"github.com/xplshn/chains/pkg/sandbox"
-	flag "github.com/spf13/pflag"
+
+	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 )
 
 var (
-	ai                  *chains.AppImage
-	argv0               string
-	invalidBundle       = errors.New("failed to open bundle")
-	invalidIcon         = errors.New("failed to extract icon")
-	invalidThumbnail    = errors.New("failed to extract thumbnail preview")
-	invalidPerms        = errors.New("failed to get permissions from profile")
-	invalidPermLevel    = errors.New("failed to set permissions level (this shouldn't happen)")
+	ai                     *chains.AppImage
+	argv0                  string
+	invalidBundle          = errors.New("failed to open bundle")
+	invalidIcon            = errors.New("failed to extract icon")
+	invalidThumbnail       = errors.New("failed to extract thumbnail preview")
+	invalidPerms           = errors.New("failed to get permissions from profile")
+	invalidPermLevel       = errors.New("failed to set permissions level (this shouldn't happen)")
 	invalidFallbackProfile = errors.New("failed to set fallback profile")
-	invalidSocketSet    = errors.New("failed to set socket")
-	cantRun             = errors.New("failed to run application")
+	invalidSocketSet       = errors.New("failed to set socket")
+	cantRun                = errors.New("failed to run application")
 )
 
 // Command line flags
 var (
-	help              = flag.BoolP("help", "h", false, "display this help menu")
-	listPerms         = flag.BoolP("list-perms", "l", false, "print all permissions to be granted to the app")
-	verbose           = flag.BoolP("verbose", "v", false, "make output more verbose")
-	level             = flag.Int("level", -1, "change the permissions level")
-	rootDir           = flag.String("root-dir", "", "use a different filesystem root for system files")
-	dataDir           = flag.String("data-dir", "", "change the AppImage's sandbox home location")
-	noDataDir         = flag.Bool("no-data-dir", false, "force AppImage's HOME to be a tmpfs")
-	extractIcon       = flag.String("extract-icon", "", "extract the AppImage's icon")
-	extractThumbnail   = flag.String("extract-thumbnail", "", "extract the AppImage's thumbnail preview")
-	profile           = flag.String("profile", "", "use a profile from a desktop entry")
-	fallbackProfile    = flag.String("fallback-profile", "", "set profile to fallback on if one isn't found")
-	version           = flag.Bool("version", false, "show the version and quit")
-	trustOnce         = flag.Bool("trust-once", false, "trust the AppImage for one run")
-	trust             = flag.Bool("trust", false, "set whether the AppImage is trusted or not")
+	help             = pflag.BoolP("help", "h", false, "display this help menu")
+	listPerms        = pflag.BoolP("list-perms", "l", false, "print all permissions to be granted to the app")
+	verbose          = pflag.BoolP("verbose", "v", false, "make output more verbose")
+	level            = flag.Int("level", -1, "change the permissions level")
+	rootDir          = flag.String("root-dir", "", "use a different filesystem root for system files")
+	dataDir          = flag.String("data-dir", "", "change the AppImage's sandbox home location")
+	noDataDir        = flag.Bool("no-data-dir", false, "force AppImage's HOME to be a tmpfs")
+	extractIcon      = flag.String("extract-icon", "", "extract the AppImage's icon")
+	extractThumbnail = flag.String("extract-thumbnail", "", "extract the AppImage's thumbnail preview")
+	profile          = flag.String("profile", "", "use a profile from a desktop entry")
+	fallbackProfile  = flag.String("fallback-profile", "", "set profile to fallback on if one isn't found")
+	version          = flag.Bool("version", false, "show the version and quit")
+	trustOnce        = flag.Bool("trust-once", false, "trust the AppImage for one run")
+	trust            = flag.Bool("trust", false, "set whether the AppImage is trusted or not")
 
 	addFiles   arrayFlags
 	rmFiles    arrayFlags
-	addDevices  arrayFlags
-	rmDevices   arrayFlags
-	addSockets  arrayFlags
-	rmSockets   arrayFlags
+	addDevices arrayFlags
+	rmDevices  arrayFlags
+	addSockets arrayFlags
+	rmSockets  arrayFlags
 )
 
 // arrayFlags type for multiple string flags
@@ -113,7 +115,7 @@ func main() {
 	}
 
 	if err := ai.Sandbox(perms, flag.Args()[1:]); err != nil {
-		fatal("sandbox error:", err)
+		fmt.Errorf("sandbox error:", err)
 		return
 	}
 }
@@ -151,21 +153,23 @@ func handleFlags() {
 // Extract the AppImage's icon
 func extractIconFromAppImage(ai *chains.AppImage) error {
 	if *verbose {
-		fmt.Printf("Extracting icon to %s\n", *extractIcon)
+		fmt.Printf("Extracting icon to %s", *extractIcon)
 	}
-	icon, _, err := ai.Icon()
-	if err != nil {
-		return err
-	}
-	defer icon.Close()
-
 	f, err := os.Create(*extractIcon)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	_, err = io.Copy(f, icon)
+	// Open the icon file
+	iconFile, err := os.Open(ai.Icon)
+	if err != nil {
+		return err
+	}
+	defer iconFile.Close()
+
+	// Copy the icon file to the destination
+	_, err = io.Copy(f, iconFile)
 	return err
 }
 
@@ -178,7 +182,6 @@ func extractThumbnailFromAppImage(ai *chains.AppImage) error {
 	if err != nil {
 		return err
 	}
-	defer thumbnail.Close()
 
 	f, err := os.Create(*extractThumbnail)
 	if err != nil {
@@ -192,7 +195,7 @@ func extractThumbnailFromAppImage(ai *chains.AppImage) error {
 
 // Set permissions from profile or defaults
 func setPermissions(ai *chains.AppImage) (*chains.AppImagePerms, error) {
-	perms, err := ai.Permissions()
+	perms, err := ai.GetPermissions()
 	if err != nil {
 		return perms, err
 	}
@@ -204,7 +207,7 @@ func setPermissions(ai *chains.AppImage) (*chains.AppImagePerms, error) {
 		}
 		defer f.Close()
 
-		perms, err = permissions.FromReader(f)
+		perms, err = chains.FromReader(f)
 		if err != nil {
 			return perms, err
 		}
@@ -248,7 +251,7 @@ func loadFallbackProfile(perms *chains.AppImagePerms) (*chains.AppImagePerms, er
 	if err != nil {
 		return perms, err
 	}
-	return permissions.FromIni(f)
+	return chains.FromIni(f)
 }
 
 // List the AppImage permissions

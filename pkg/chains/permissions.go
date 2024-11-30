@@ -300,39 +300,39 @@ func IsTrusted(name, path string) bool {
 }
 
 func SetTrusted(name, path string, ai *AppImage, trusted bool) error {
-    configPath := filepath.Join(xdg.DataHome, "chains", "profiles", name)
+	configPath := filepath.Join(xdg.DataHome, "chains", "profiles", name)
 
-    if trusted {
-        if !DirExists(filepath.Dir(configPath)) {
-            os.MkdirAll(filepath.Dir(configPath), 0744)
-        }
+	if trusted {
+		if !DirExists(filepath.Dir(configPath)) {
+			os.MkdirAll(filepath.Dir(configPath), 0744)
+		}
 
-        info, err := os.Stat(path)
-        if err != nil {
-            return err
-        }
-        os.Chmod(path, info.Mode()|0100)
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		os.Chmod(path, info.Mode()|0100)
 
-        if FileExists(configPath) {
-            return errors.New("entry already exists in chains config dir")
-        }
+		if FileExists(configPath) {
+			return errors.New("entry already exists in chains config dir")
+		}
 
-        desktopFile := ai.Desktop
-        permFile, err := os.Create(configPath)
-        if err != nil {
-            return err
-        }
-        defer permFile.Close()
+		desktopFile := ai.Desktop
+		permFile, err := os.Create(configPath)
+		if err != nil {
+			return err
+		}
+		defer permFile.Close()
 
-        var buf bytes.Buffer
-        if _, err := desktopFile.WriteTo(&buf); err != nil {
-            return err
-        }
-        _, err = io.Copy(permFile, &buf)
-        return err
-    } else {
-        return os.Remove(configPath)
-    }
+		var buf bytes.Buffer
+		if _, err := desktopFile.WriteTo(&buf); err != nil {
+			return err
+		}
+		_, err = io.Copy(permFile, &buf)
+		return err
+	} else {
+		return os.Remove(configPath)
+	}
 }
 
 // GetPermissions retrieves the permissions of the AppImage

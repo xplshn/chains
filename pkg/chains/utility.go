@@ -8,14 +8,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
-	"strconv"
-	"strings"
 	"path"
 	"path/filepath"
-	"math/rand"
-
+	"strconv"
+	"strings"
 
 	"gopkg.in/ini.v1"
 )

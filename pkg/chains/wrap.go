@@ -1,4 +1,4 @@
-package wrap
+package chains
 
 import (
 	"errors"
@@ -9,19 +9,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xplshn/chains/pkg/chains"
-	"github.com/xplshn/chains/pkg/sandbox"
+	"github.com/adrg/xdg"
 )
 
 // Executes AppImage through bwrap and creates a portable home if one doesn't
 // already exist
 // Returns error if AppImagePerms.Level < 1
-func (ai *AppImage) Sandbox(perms *permissions.AppImagePerms, args []string) error {
+func (ai *AppImage) Sandbox(perms *AppImagePerms, args []string) error {
 	if perms.Level < 1 || perms.Level > 3 {
 		return errors.New("permissions level must be 1 - 3")
 	}
 
-	if !helpers.DirExists(filepath.Join(xdg.CacheHome, "appimage", ai.md5)) {
+	if !DirExists(filepath.Join(xdg.CacheHome, "appimage", ai.md5)) {
 		err := os.MkdirAll(filepath.Join(xdg.CacheHome, "appimage", ai.md5), 0744)
 		if err != nil {
 			return err
@@ -30,7 +29,7 @@ func (ai *AppImage) Sandbox(perms *permissions.AppImagePerms, args []string) err
 
 	// Tell AppImages not to ask for integration
 	if perms.DataDir {
-		if !helpers.DirExists(filepath.Join(ai.dataDir, ".local/share/appimagekit")) { // It should always be hardcoded to ~/.local/share/appimagekit. Because the appimage integrators expect this file at this dir
+		if !DirExists(filepath.Join(ai.dataDir, ".local/share/appimagekit")) { // It should always be hardcoded to ~/.local/share/appimagekit. Because the appimage integrators expect this file at this dir
 			err := os.MkdirAll(filepath.Join(ai.dataDir, ".local/share/appimagekit"), 0744)
 			if err != nil {
 				return err
@@ -41,12 +40,12 @@ func (ai *AppImage) Sandbox(perms *permissions.AppImagePerms, args []string) err
 		noIntegrate.Close()
 	}
 
-	cmdArgs, err := ai.WrapArgs(perms, args)
+	cmdArgs, err := ai.GetWrapArgs(perms, args)
 	if err != nil {
 		return err
 	}
 
-	bwrapStr, present := helpers.CommandExists("bwrap")
+	bwrapStr, present := CommandExists("bwrap")
 	if !present {
 		return errors.New("failed to find bwrap! unable to sandbox application")
 	}
@@ -60,7 +59,7 @@ func (ai *AppImage) Sandbox(perms *permissions.AppImagePerms, args []string) err
 }
 
 // Returns the bwrap arguments to sandbox the AppImage
-func (ai AppImage) WrapArgs(perms *permissions.AppImagePerms, args []string) ([]string, error) {
+func (ai AppImage) GetWrapArgs(perms *AppImagePerms, args []string) ([]string, error) {
 	if !ai.IsMounted() {
 		return []string{}, errors.New("AppImage must be mounted before getting its wrap arguments! call *AppImage.Mount() first")
 	}
@@ -72,13 +71,13 @@ func (ai AppImage) WrapArgs(perms *permissions.AppImagePerms, args []string) ([]
 		return args, nil
 	}
 
-	cmdArgs := ai.mainWrapArgs(perms)
+	cmdArgs := ai.getMainWrapArgs(perms)
 
 	// Append console arguments provided by the user
 	return append(cmdArgs, args...), nil
 }
 
-func (ai *AppImage) mainWrapArgs(perms *permissions.AppImagePerms) []string {
+func (ai *AppImage) getMainWrapArgs(perms *AppImagePerms) []string {
 	home, present := unsetHome()
 	defer restoreHome(home, present)
 
@@ -89,19 +88,19 @@ func (ai *AppImage) mainWrapArgs(perms *permissions.AppImagePerms) []string {
 		"--setenv", "APPDIR", "/tmp/.mount_" + ai.md5,
 		"--setenv", "APPIMAGE", filepath.Join("/app", path.Base(ai.Path)),
 		"--setenv", "ARGV0", filepath.Join(path.Base(ai.Path)),
-		"--setenv", "XDG_DESKTOP_DIR",     xdg.UserDirs.Desktop,
-		"--setenv", "XDG_DOWNLOAD_DIR",    xdg.UserDirs.Download,
-		"--setenv", "XDG_DOCUMENTS_DIR",   xdg.UserDirs.Documents,
-		"--setenv", "XDG_MUSIC_DIR",       xdg.UserDirs.Music,
-		"--setenv", "XDG_PICTURES_DIR",    xdg.UserDirs.Pictures,
-		"--setenv", "XDG_VIDEOS_DIR",      xdg.UserDirs.Videos,
-		"--setenv", "XDG_TEMPLATES_DIR",   xdg.UserDirs.Templates,
+		"--setenv", "XDG_DESKTOP_DIR", xdg.UserDirs.Desktop,
+		"--setenv", "XDG_DOWNLOAD_DIR", xdg.UserDirs.Download,
+		"--setenv", "XDG_DOCUMENTS_DIR", xdg.UserDirs.Documents,
+		"--setenv", "XDG_MUSIC_DIR", xdg.UserDirs.Music,
+		"--setenv", "XDG_PICTURES_DIR", xdg.UserDirs.Pictures,
+		"--setenv", "XDG_VIDEOS_DIR", xdg.UserDirs.Videos,
+		"--setenv", "XDG_TEMPLATES_DIR", xdg.UserDirs.Templates,
 		"--setenv", "XDG_PUBLICSHARE_DIR", xdg.UserDirs.PublicShare,
-		"--setenv", "XDG_DATA_HOME",       xdg.DataHome,
-		"--setenv", "XDG_CONFIG_HOME",     xdg.ConfigHome,
-		"--setenv", "XDG_CACHE_HOME",      xdg.CacheHome,
-		"--setenv", "XDG_STATE_HOME",      xdg.StateHome,
-		"--setenv", "XDG_RUNTIME_DIR",     xdg.RuntimeDir,
+		"--setenv", "XDG_DATA_HOME", xdg.DataHome,
+		"--setenv", "XDG_CONFIG_HOME", xdg.ConfigHome,
+		"--setenv", "XDG_CACHE_HOME", xdg.CacheHome,
+		"--setenv", "XDG_STATE_HOME", xdg.StateHome,
+		"--setenv", "XDG_RUNTIME_DIR", xdg.RuntimeDir,
 		"--die-with-parent",
 		"--perms", "0700",
 		"--dir", filepath.Join(xdg.RuntimeDir),
@@ -213,7 +212,7 @@ func (ai AppImage) resolve(src string) string {
 	return s
 }
 
-func parseFiles(perms *permissions.AppImagePerms) []string {
+func parseFiles(perms *AppImagePerms) []string {
 	var s []string
 
 	// Convert requested files/ dirs to brap flags
@@ -223,9 +222,9 @@ func parseFiles(perms *permissions.AppImagePerms) []string {
 		dir := strings.Join(sl[:len(sl)-1], ":")
 
 		if ex == "rw" {
-			s = append(s, "--bind-try", helpers.ExpandDir(dir), helpers.ExpandGenericDir(dir))
+			s = append(s, "--bind-try", ExpandDir(dir), ExpandGenericDir(dir))
 		} else if ex == "ro" {
-			s = append(s, "--ro-bind-try", helpers.ExpandDir(dir), helpers.ExpandGenericDir(dir))
+			s = append(s, "--ro-bind-try", ExpandDir(dir), ExpandGenericDir(dir))
 		}
 	}
 
@@ -233,7 +232,7 @@ func parseFiles(perms *permissions.AppImagePerms) []string {
 }
 
 // Give all requried flags to add the devices
-func parseDevices(ai *AppImage, perms *permissions.AppImagePerms) []string {
+func parseDevices(ai *AppImage, perms *AppImagePerms) []string {
 	var d []string
 
 	// Convert device perms to bwrap format
@@ -260,8 +259,8 @@ func parseDevices(ai *AppImage, perms *permissions.AppImagePerms) []string {
 		},
 	}
 
-	for device, _ := range devices {
-		if _, present := helpers.Contains(perms.Devices, device); present {
+	for device := range devices {
+		if _, present := Contains(perms.Devices, device); present {
 			d = append(d, devices[device]...)
 		}
 	}
@@ -269,7 +268,7 @@ func parseDevices(ai *AppImage, perms *permissions.AppImagePerms) []string {
 	return d
 }
 
-func parseSockets(ai *AppImage, perms *permissions.AppImagePerms) []string {
+func parseSockets(ai *AppImage, perms *AppImagePerms) []string {
 	var s []string
 	uid := strconv.Itoa(os.Getuid())
 
@@ -375,10 +374,10 @@ func parseSockets(ai *AppImage, perms *permissions.AppImagePerms) []string {
 		"x11":        {},
 	}
 
-	for socketString, _ := range sockets {
+	for socketString := range sockets {
 		var present = false
 		for _, sock := range perms.Sockets {
-			if sock == permissions.Socket(socketString) {
+			if sock == Socket(socketString) {
 				present = true
 			}
 		}
@@ -388,7 +387,7 @@ func parseSockets(ai *AppImage, perms *permissions.AppImagePerms) []string {
 			// and the app supports it
 			var waylandApp = false
 			for _, sock := range perms.Sockets {
-				if sock == permissions.Socket("wayland") {
+				if sock == Socket("wayland") {
 					waylandApp = true
 				}
 			}
@@ -419,7 +418,7 @@ func parseSockets(ai *AppImage, perms *permissions.AppImagePerms) []string {
 func unsetHome() (string, bool) {
 	home, present := os.LookupEnv("HOME")
 
-	newHome, _ := helpers.RealHome()
+	newHome, _ := RealHome()
 
 	os.Setenv("HOME", newHome)
 	xdg.Reload()
